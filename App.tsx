@@ -1,47 +1,46 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Shield, 
   Users, 
   Plus, 
   Pencil, 
-  Trash2, 
+  Ban, 
   LogOut,
   X,
   Eye,
   EyeOff,
   Database,
   Terminal,
-  FileCode,
   Key,
   UserCheck,
-  AlertTriangle,
-  Settings,
-  RefreshCcw,
-  Search,
-  CheckCircle2,
-  Ban,
-  History,
   Phone,
   Lock,
   User as UserIcon,
   Activity,
-  Server,
   Code2,
-  Globe,
-  LockKeyhole,
   Cpu,
-  Monitor,
+  RefreshCcw,
   Copy,
   Check,
-  CreditCard,
-  CalendarDays,
-  Smartphone
+  Settings,
+  FileCode,
+  FolderTree,
+  AlertTriangle,
+  Calendar,
+  Save,
+  Monitor,
+  Search,
+  Laptop,
+  Filter,
+  ArrowRight
 } from 'lucide-react';
 
-// --- Tipagens ---
+// --- Tipos e Interfaces ---
 type Role = 'ADMIN' | 'REVENDEDOR';
 type Plan = 'MENSAL' | 'ANUAL' | 'VITALICIO';
+type ResellerPlan = 'ANUAL' | 'VITALICIO'; // Novo tipo para revendedores
 type View = 'DASHBOARD' | 'RESELLERS' | 'MY_LICENSES' | 'MONITORING' | 'API' | 'SQL';
+type FilterType = 'ALL' | 'ACTIVE' | 'NON_ACTIVE';
 
 interface User {
   id: number;
@@ -57,6 +56,9 @@ interface Reseller {
   senha?: string;
   telefone: string;
   status: 'ATIVO' | 'BLOQUEADO';
+  clientesCount: number;
+  validade: string; // Nova validade do revendedor
+  tipo: ResellerPlan; // Novo tipo de plano do revendedor
 }
 
 interface License {
@@ -72,42 +74,291 @@ interface License {
 }
 
 const App: React.FC = () => {
+  // --- Estados Globais ---
   const [user, setUser] = useState<User | null>(null);
   const [view, setView] = useState<View>('DASHBOARD');
   const [loginInput, setLoginInput] = useState({ usuario: '', senha: '' });
   const [loginError, setLoginError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [showModal, setShowModal] = useState(false);
-  const [showLicenseModal, setShowLicenseModal] = useState(false);
   const [copied, setCopied] = useState(false);
+  
+  // Estado de Busca e Filtro
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState<FilterType>('ALL');
 
-  // --- Estados de Cadastro ---
-  const [newReseller, setNewReseller] = useState({ nome: '', usuario: '', senha: '', telefone: '' });
+  // --- Estados de Modais ---
+  const [showModalReseller, setShowModalReseller] = useState(false);
+  const [showModalLicense, setShowModalLicense] = useState(false);
+
+  // --- Estados de Edição ---
+  const [editingReseller, setEditingReseller] = useState<Reseller | null>(null);
+  const [editingLicense, setEditingLicense] = useState<License | null>(null);
+
+  // --- Estados de Formulários ---
+  const [newReseller, setNewReseller] = useState({ 
+    nome: '', 
+    usuario: '', 
+    senha: '', 
+    telefone: '',
+    tipo: 'ANUAL' as ResellerPlan,
+    validade: '' 
+  });
   const [newLicense, setNewLicense] = useState({ nome: '', email: '', validade: '', tipo: 'MENSAL' as Plan });
 
-  // --- Dados Simulados ---
+  // --- Funções Auxiliares (Movido para cima para uso no Mock) ---
+  const isExpired = (date: string) => new Date(date) < new Date();
+
+  // --- Dados Mockados (Simulando Banco de Dados) ---
   const [resellers, setResellers] = useState<Reseller[]>([
-    { id: 1, nome: 'Premium Digital', usuario: 'premium', telefone: '(11) 98877-6655', status: 'ATIVO' },
-    { id: 2, nome: 'Revenda Elite', usuario: 'elite', telefone: '(21) 91122-3344', status: 'ATIVO' },
+    { id: 1, nome: 'Premium Digital', usuario: 'premium', senha: '123', telefone: '(11) 98877-6655', status: 'ATIVO', clientesCount: 2, tipo: 'ANUAL', validade: '2025-12-31' },
+    { id: 2, nome: 'Revenda Elite', usuario: 'elite', senha: '123', telefone: '(21) 91122-3344', status: 'BLOQUEADO', clientesCount: 0, tipo: 'VITALICIO', validade: '2099-12-31' },
+    { id: 3, nome: 'Cyber Store', usuario: 'cyber', senha: '123', telefone: '(31) 99988-7766', status: 'ATIVO', clientesCount: 5, tipo: 'ANUAL', validade: '2024-10-01' }, // Expirado para teste
   ]);
 
   const [licenses, setLicenses] = useState<License[]>([
     { id: 1, revendedorId: 1, revendedorNome: 'Premium Digital', nome: 'Carlos Developer', email: 'carlos@work.com', validade: '2025-12-31', hwid: 'DESKTOP-8899-AX', tipo: 'VITALICIO', status: 'ATIVO' },
     { id: 2, revendedorId: 1, revendedorNome: 'Premium Digital', nome: 'Beatriz Silva', email: 'beatriz@gmail.com', validade: '2025-06-15', hwid: null, tipo: 'MENSAL', status: 'ATIVO' },
+    { id: 3, revendedorId: 0, revendedorNome: 'Administrador Master', nome: 'Teste Interno', email: 'admin@orvex.com', validade: '2030-01-01', hwid: 'SERVER-01', tipo: 'VITALICIO', status: 'ATIVO' },
+    { id: 4, revendedorId: 3, revendedorNome: 'Cyber Store', nome: 'Lan House Central', email: 'lan@house.com', validade: '2024-12-01', hwid: 'LAN-MASTER-01', tipo: 'MENSAL', status: 'BLOQUEADO' },
   ]);
 
-  // --- Utilitários ---
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Falha ao copiar:', err);
+  // --- Strings de Documentação e Integração ---
+  const sqlContent = `-- ORVEX PRO DATABASE SCRIPT v3.2 FINAL
+-- Importe este arquivo no seu phpMyAdmin (Banco: u525090895_orvex)
+
+SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
+START TRANSACTION;
+SET time_zone = "+00:00";
+
+-- --------------------------------------------------------
+-- Estrutura da tabela \`admins\` (Usuários Administrativos)
+-- --------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS \`admins\` (
+  \`id\` int(11) NOT NULL AUTO_INCREMENT,
+  \`nome\` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  \`usuario\` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  \`senha\` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  PRIMARY KEY (\`id\`),
+  UNIQUE KEY \`usuario\` (\`usuario\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+-- Estrutura da tabela \`revendedores\`
+-- --------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS \`revendedores\` (
+  \`id\` int(11) NOT NULL AUTO_INCREMENT,
+  \`nome\` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  \`usuario\` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  \`senha\` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  \`telefone\` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
+  \`tipo\` enum('ANUAL','VITALICIO') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ANUAL',
+  \`validade\` date NOT NULL,
+  \`status\` enum('ATIVO','BLOQUEADO') COLLATE utf8mb4_unicode_ci DEFAULT 'ATIVO',
+  PRIMARY KEY (\`id\`),
+  UNIQUE KEY \`usuario\` (\`usuario\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+-- Estrutura da tabela \`licencas\`
+-- --------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS \`licencas\` (
+  \`id\` int(11) NOT NULL AUTO_INCREMENT,
+  \`revendedor_id\` int(11) NOT NULL DEFAULT 0,
+  \`revendedor_nome\` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT 'Admin',
+  \`nome\` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  \`email\` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  \`validade\` date NOT NULL,
+  \`hwid\` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  \`tipo\` enum('MENSAL','ANUAL','VITALICIO') COLLATE utf8mb4_unicode_ci NOT NULL,
+  \`status\` enum('ATIVO','BLOQUEADO') COLLATE utf8mb4_unicode_ci DEFAULT 'ATIVO',
+  PRIMARY KEY (\`id\`),
+  UNIQUE KEY \`email\` (\`email\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+-- DADOS INICIAIS
+-- --------------------------------------------------------
+
+-- Usuário Administrador Padrão
+INSERT INTO \`admins\` (\`id\`, \`nome\`, \`usuario\`, \`senha\`) VALUES
+(1, 'Administrador Master', 'admin', 'admin123');
+
+-- Revendedores de Teste
+INSERT INTO \`revendedores\` (\`id\`, \`nome\`, \`usuario\`, \`senha\`, \`telefone\`, \`tipo\`, \`validade\`, \`status\`) VALUES
+(1, 'Premium Digital', 'premium', '123', '(11) 98877-6655', 'ANUAL', '2025-12-31', 'ATIVO'),
+(2, 'Revenda Elite', 'elite', '123', '(21) 91122-3344', 'VITALICIO', '2099-12-31', 'BLOQUEADO'),
+(3, 'Cyber Store', 'cyber', '123', '(31) 99988-7766', 'ANUAL', '2024-10-01', 'ATIVO');
+
+-- Licenças de Teste
+INSERT INTO \`licencas\` (\`id\`, \`revendedor_id\`, \`revendedor_nome\`, \`nome\`, \`email\`, \`validade\`, \`hwid\`, \`tipo\`, \`status\`) VALUES
+(1, 1, 'Premium Digital', 'Carlos Developer', 'carlos@work.com', '2025-12-31', 'DESKTOP-8899-AX', 'VITALICIO', 'ATIVO'),
+(2, 1, 'Premium Digital', 'Beatriz Silva', 'beatriz@gmail.com', '2025-06-15', NULL, 'MENSAL', 'ATIVO'),
+(3, 0, 'Administrador Master', 'Teste Interno', 'admin@orvex.com', '2030-01-01', 'SERVER-01', 'VITALICIO', 'ATIVO'),
+(4, 3, 'Cyber Store', 'Lan House Central', 'lan@house.com', '2024-12-01', 'LAN-MASTER-01', 'MENSAL', 'BLOQUEADO');
+
+COMMIT;`;
+
+  const phpConfig = `<?php
+// Caminho: public_html/orvexai/api/config.php
+$host = '127.0.0.1';
+$db   = 'u525090895_orvex';
+$user = 'u525090895_orvex';
+$pass = '/uU=0i45S6M'; 
+
+try {
+    $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8mb4", $user, $pass);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+} catch (PDOException $e) {
+    die(json_encode(['status' => 'error', 'message' => 'Erro Conexão DB']));
+}
+?>`;
+
+  const phpCheck = `<?php
+// Caminho: public_html/orvexai/api/check.php
+// Esta API realiza o BLOQUEIO AUTOMÁTICO se a validade expirar.
+
+require_once 'config.php';
+header('Content-Type: application/json');
+
+$email = filter_input(INPUT_GET, 'email', FILTER_SANITIZE_EMAIL);
+$hwid  = filter_input(INPUT_GET, 'hwid', FILTER_SANITIZE_STRING);
+
+if (!$email || !$hwid) die(json_encode(['status' => 'error', 'message' => 'Dados incompletos']));
+
+$stmt = $pdo->prepare("SELECT id, validade, status, hwid FROM licencas WHERE email = ?");
+$stmt->execute([$email]);
+$lic = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$lic) die(json_encode(['status' => 'invalid', 'message' => 'Licença não encontrada']));
+
+// Bloqueio Manual
+if ($lic['status'] !== 'ATIVO') die(json_encode(['status' => 'blocked', 'message' => 'Licença Bloqueada']));
+
+// Bloqueio Automático por Data (Vencimento)
+if ($lic['validade'] < date('Y-m-d')) {
+    die(json_encode(['status' => 'expired', 'message' => 'Licença Expirada']));
+}
+
+// Lógica HWID
+if (empty($lic['hwid'])) {
+    $pdo->prepare("UPDATE licencas SET hwid = ? WHERE id = ?")->execute([$hwid, $lic['id']]);
+    echo json_encode(['status' => 'success', 'message' => 'Licença Ativada!']);
+} elseif ($lic['hwid'] === $hwid) {
+    echo json_encode(['status' => 'success', 'message' => 'Acesso Permitido']);
+} else {
+    echo json_encode(['status' => 'hwid_error', 'message' => 'HWID Inválido (Outro PC)']);
+}
+?>`;
+
+  const csharpCode = `// --- INTEGRAÇÃO C# (Substitua o script do Google Sheets por isso) ---
+using System;
+using System.Net;
+using System.Windows.Forms; // Ou sua biblioteca de UI
+
+public class LicenseChecker
+{
+    public static bool CheckLicense(string userEmail, string userHwid)
+    {
+        // URL da sua API hospedada
+        string apiUrl = $"https://seusite.com/orvexai/api/check.php?email={userEmail}&hwid={userHwid}";
+
+        try
+        {
+            using (WebClient client = new WebClient())
+            {
+                // Faz a requisição para o PHP
+                string response = client.DownloadString(apiUrl);
+                
+                // Verifica a resposta (JSON simples)
+                if (response.Contains("success"))
+                {
+                    return true; // Acesso Liberado
+                }
+                else if (response.Contains("expired"))
+                {
+                    MessageBox.Show("Sua licença expirou! Entre em contato para renovar.");
+                    return false;
+                }
+                else if (response.Contains("blocked"))
+                {
+                    MessageBox.Show("Licença bloqueada pelo administrador.");
+                    return false;
+                }
+                else
+                {
+                    MessageBox.Show("Erro de licença: " + response);
+                    return false;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Erro ao conectar ao servidor de licença: " + ex.Message);
+            return false;
+        }
     }
+}
+`;
+
+  const copyToClipboard = async (text: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  
+  // Função para mudar a view e resetar a busca
+  const changeView = (newView: View) => {
+      setSearchTerm('');
+      setFilterType('ALL'); // Reseta o filtro ao trocar de tela pelo menu
+      setView(newView);
   };
 
-  // --- Login Unificado ---
+  const applyDashboardFilter = (filter: FilterType) => {
+    setFilterType(filter);
+    setView('MY_LICENSES');
+  };
+
+  // --- Lógica de Filtros e Busca ---
+  
+  const userLicenses = user?.role === 'ADMIN' ? licenses : licenses.filter(l => l.revendedorId === user?.id);
+
+  // Busca Inteligente + Filtro de Status
+  const filteredLicenses = useMemo(() => {
+    let result = userLicenses;
+
+    // 1. Aplicar Filtro do Dashboard (Cards)
+    if (filterType === 'ACTIVE') {
+      result = result.filter(l => l.status === 'ATIVO' && !isExpired(l.validade));
+    } else if (filterType === 'NON_ACTIVE') {
+      result = result.filter(l => l.status === 'BLOQUEADO' || isExpired(l.validade));
+    }
+
+    // 2. Aplicar Busca de Texto
+    if (!searchTerm) return result;
+    const lowerTerm = searchTerm.toLowerCase();
+    return result.filter(l => 
+        (l.nome && l.nome.toLowerCase().includes(lowerTerm)) ||
+        (l.email && l.email.toLowerCase().includes(lowerTerm)) ||
+        (l.hwid && l.hwid.toLowerCase().includes(lowerTerm)) ||
+        (l.revendedorNome && l.revendedorNome.toLowerCase().includes(lowerTerm))
+    );
+  }, [userLicenses, searchTerm, filterType]);
+
+  const filteredResellers = useMemo(() => {
+    if (!searchTerm) return resellers;
+    const lowerTerm = searchTerm.toLowerCase();
+    return resellers.filter(r => 
+        r.nome.toLowerCase().includes(lowerTerm) ||
+        r.usuario.toLowerCase().includes(lowerTerm) ||
+        r.telefone.includes(searchTerm)
+    );
+  }, [resellers, searchTerm]);
+
+
+  // --- Autenticação ---
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     const { usuario, senha } = loginInput;
@@ -115,542 +366,520 @@ const App: React.FC = () => {
     if (usuario === 'admin' && senha === 'admin123') {
       setUser({ id: 0, usuario: 'admin', nome: 'Administrador Master', role: 'ADMIN' });
       setView('DASHBOARD');
-    } else {
-      const resellerFound = resellers.find(r => r.usuario === usuario && senha === '123456');
-      if (resellerFound) {
-        setUser({ id: resellerFound.id, usuario: resellerFound.usuario, nome: resellerFound.nome, role: 'REVENDEDOR' });
-        setView('DASHBOARD');
-      } else {
-        setLoginError('Credenciais Master ou de Revenda incorretas.');
+      return;
+    }
+
+    const revendedor = resellers.find(r => r.usuario === usuario && r.senha === senha);
+    if (revendedor) {
+      if (revendedor.status === 'BLOQUEADO') {
+        setLoginError('CONTA SUSPENSA. Contate o suporte.');
+        return;
       }
+      // Verifica se a conta do revendedor venceu
+      if (isExpired(revendedor.validade)) {
+        setLoginError('CONTA EXPIRADA. Renove seu plano.');
+        return;
+      }
+
+      setUser({ id: revendedor.id, usuario: revendedor.usuario, nome: revendedor.nome, role: 'REVENDEDOR' });
+      setView('DASHBOARD');
+    } else {
+      setLoginError('Acesso Negado.');
     }
   };
 
-  const handleAddReseller = () => {
-    if (!newReseller.nome || !newReseller.usuario || !newReseller.senha || !newReseller.telefone) return alert("Preencha todos os campos, incluindo telefone!");
-    setResellers([...resellers, { ...newReseller, id: resellers.length + 1, status: 'ATIVO' }]);
-    setShowModal(false);
-    setNewReseller({ nome: '', usuario: '', senha: '', telefone: '' });
+  // --- CRUD e Lógica de Interface ---
+  const handleCreateReseller = () => {
+    if (!newReseller.nome || !newReseller.usuario || !newReseller.senha || !newReseller.validade) return alert("Preencha todos os dados.");
+    const novo: Reseller = {
+      id: resellers.length + 1,
+      ...newReseller,
+      status: 'ATIVO',
+      clientesCount: 0
+    };
+    setResellers([...resellers, novo]);
+    setShowModalReseller(false);
+    setNewReseller({ nome: '', usuario: '', senha: '', telefone: '', tipo: 'ANUAL', validade: '' });
   };
 
-  const handleAddLicense = () => {
-    if (!newLicense.email || !newLicense.validade) return alert("Preencha os campos obrigatórios!");
-    const id = licenses.length + 1;
-    const item: License = {
-      ...newLicense,
-      id,
+  const handleUpdateReseller = () => {
+    if (!editingReseller) return;
+    setResellers(resellers.map(r => r.id === editingReseller.id ? editingReseller : r));
+    setEditingReseller(null);
+  };
+
+  const toggleResellerStatus = (id: number) => {
+    setResellers(resellers.map(r => r.id === id ? { ...r, status: r.status === 'ATIVO' ? 'BLOQUEADO' : 'ATIVO' } : r));
+  };
+
+  const handleCreateLicense = () => {
+    if (!newLicense.email || !newLicense.validade) return alert("Dados incompletos.");
+    const nova: License = {
+      id: licenses.length + 1,
       revendedorId: user?.id || 0,
-      revendedorNome: user?.nome || '',
+      revendedorNome: user?.nome || 'Admin',
       hwid: null,
-      status: 'ATIVO'
+      status: 'ATIVO',
+      ...newLicense
     };
-    setLicenses([...licenses, item]);
-    setShowLicenseModal(false);
+    setLicenses([...licenses, nova]);
+    setShowModalLicense(false);
     setNewLicense({ nome: '', email: '', validade: '', tipo: 'MENSAL' });
   };
 
-  const handleResetHWID = (id: number) => {
-    if (confirm("Deseja resetar a trava de PC? O sistema aceitará o próximo computador que logar.")) {
+  const handleUpdateLicense = () => {
+    if (!editingLicense) return;
+    setLicenses(licenses.map(l => l.id === editingLicense.id ? editingLicense : l));
+    setEditingLicense(null);
+  };
+
+  const toggleLicenseStatus = (id: number) => {
+    setLicenses(licenses.map(l => l.id === id ? { ...l, status: l.status === 'ATIVO' ? 'BLOQUEADO' : 'ATIVO' } : l));
+  };
+
+  const resetHWID = (id: number) => {
+    if (confirm("Resetar HWID permitirá que o cliente use a licença em um NOVO computador. Confirmar?")) {
       setLicenses(licenses.map(l => l.id === id ? { ...l, hwid: null } : l));
     }
   };
 
-  const isExpired = (date: string) => new Date(date) < new Date();
-  const myLicenses = user?.role === 'ADMIN' ? licenses : licenses.filter(l => l.revendedorId === user?.id);
-
   const stats = {
-    ativas: myLicenses.filter(l => l.status === 'ATIVO' && !isExpired(l.validade)).length,
-    total: myLicenses.length,
-    vencidas: myLicenses.filter(l => isExpired(l.validade)).length,
-    revendedores: resellers.length
+    total: userLicenses.length,
+    ativas: userLicenses.filter(l => l.status === 'ATIVO' && !isExpired(l.validade)).length,
+    vencidas: userLicenses.filter(l => isExpired(l.validade)).length,
+    bloqueadas: userLicenses.filter(l => l.status === 'BLOQUEADO').length,
+    revendedores: resellers.length,
+    revendedoresAtivos: resellers.filter(r => r.status === 'ATIVO' && !isExpired(r.validade)).length
   };
 
-  const sqlFinal = `-- ORVEX PRO - INFRAESTRUTURA COMPLETA SQL
--- Lógica: Controle de Revendas + Trava Single PC (HWID)
-
-SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
-START TRANSACTION;
-
--- 1. Tabela de Administradores Master
-CREATE TABLE IF NOT EXISTS \`admins\` (
-  \`id\` int(11) NOT NULL AUTO_INCREMENT,
-  \`usuario\` varchar(50) NOT NULL UNIQUE,
-  \`senha\` varchar(255) NOT NULL,
-  \`nome\` varchar(100) DEFAULT NULL,
-  \`token_api\` varchar(100) DEFAULT NULL,
-  PRIMARY KEY (\`id\`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- 2. Tabela de Revendedores (Parceiros)
-CREATE TABLE IF NOT EXISTS \`revendedores\` (
-  \`id\` int(11) NOT NULL AUTO_INCREMENT,
-  \`nome\` varchar(100) NOT NULL,
-  \`usuario\` varchar(50) NOT NULL UNIQUE,
-  \`senha\` varchar(255) NOT NULL,
-  \`telefone\` varchar(30) NOT NULL,
-  \`status\` enum('ATIVO','BLOQUEADO') DEFAULT 'ATIVO',
-  \`criado_em\` timestamp NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (\`id\`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- 3. Tabela de Licenças (Usuários Finais com Trava de PC)
-CREATE TABLE IF NOT EXISTS \`licencas\` (
-  \`id\` int(11) NOT NULL AUTO_INCREMENT,
-  \`revendedor_id\` int(11) NOT NULL,
-  \`nome\` varchar(100) DEFAULT NULL,
-  \`email\` varchar(100) NOT NULL UNIQUE,
-  \`validade\` date NOT NULL,
-  \`hwid\` varchar(255) DEFAULT NULL COMMENT 'ID Único do Hardware (Travado no 1º acesso)',
-  \`tipo\` enum('MENSAL','ANUAL','VITALICIO') NOT NULL,
-  \`status\` enum('ATIVO','BLOQUEADO') DEFAULT 'ATIVO',
-  \`criado_em\` timestamp NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (\`id\`),
-  KEY \`idx_hwid_lock\` (\`hwid\`),
-  CONSTRAINT \`fk_reseller_id\` FOREIGN KEY (\`revendedor_id\`) REFERENCES \`revendedores\` (\`id\`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- Inserção do Admin Inicial
-INSERT INTO \`admins\` (\`usuario\`, \`senha\`, \`nome\`) VALUES ('admin', 'admin123', 'Diretor Geral');
-
-COMMIT;`;
-
-  const phpCheckCode = `<?php
-/**
- * check.php - Verificação de Licença e Trava de HWID
- * Proteção Sênior para Software (C#, Python, C++, etc)
- */
-header('Content-Type: application/json');
-
-// 1. Configuração do Banco de Dados
-$host = 'localhost';
-$db   = 'orvex_db';
-$user = 'root';
-$pass = '';
-
-try {
-    $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8", $user, $pass);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-} catch (Exception $e) {
-    die(json_encode(['status' => 'error', 'message' => 'Falha na conexão']));
-}
-
-// 2. Recebimento de Parâmetros (E-mail e HWID capturado pelo Software)
-$email = filter_input(INPUT_GET, 'email', FILTER_SANITIZE_EMAIL);
-$hwid  = filter_input(INPUT_GET, 'hwid', FILTER_SANITIZE_STRING);
-
-if (!$email || !$hwid) {
-    echo json_encode(['status' => 'error', 'message' => 'Parâmetros inválidos']);
-    exit;
-}
-
-// 3. Consulta de Licença
-$stmt = $pdo->prepare("SELECT * FROM licencas WHERE email = ? LIMIT 1");
-$stmt->execute([$email]);
-$lic = $stmt->fetch(PDO::FETCH_ASSOC);
-
-if (!$lic) {
-    echo json_encode(['status' => 'invalid', 'message' => 'Licença não cadastrada']);
-    exit;
-}
-
-// 4. Validações de Status e Validade
-if ($lic['status'] !== 'ATIVO') {
-    echo json_encode(['status' => 'blocked', 'message' => 'Sua licença foi suspensa']);
-    exit;
-}
-
-if (strtotime($lic['validade']) < time()) {
-    echo json_encode(['status' => 'expired', 'message' => 'Assinatura expirada em ' . $lic['validade']]);
-    exit;
-}
-
-// 5. Lógica da Trava Single PC (HWID)
-if (empty($lic['hwid'])) {
-    // Primeiro acesso: Vincula o PC atual permanentemente
-    $update = $pdo->prepare("UPDATE licencas SET hwid = ? WHERE id = ?");
-    $update->execute([$hwid, $lic['id']]);
-    echo json_encode([
-        'status' => 'success', 
-        'message' => 'PC Vinculado com sucesso!',
-        'validade' => $lic['validade']
-    ]);
-} else {
-    // Acessos posteriores: Compara o hardware atual com o travado
-    if ($lic['hwid'] !== $hwid) {
-        echo json_encode([
-            'status' => 'hwid_mismatch', 
-            'message' => 'Acesso negado: Esta licença está ativa em outro computador'
-        ]);
-        exit;
-    }
-    
-    echo json_encode([
-        'status' => 'success', 
-        'message' => 'Acesso autorizado',
-        'validade' => $lic['validade']
-    ]);
-}
-?>`;
-
+  // --- Login Screen ---
   if (!user) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-[#020617] relative overflow-hidden selection:bg-indigo-500/30">
-        <div className="absolute top-[-10%] right-[-10%] w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px]" />
-        
-        <div className="relative z-10 w-full max-w-[440px]">
-          <div className="text-center mb-10">
-            <div className="inline-flex p-5 rounded-[2rem] bg-indigo-600/10 border border-indigo-500/20 mb-6 shadow-xl shadow-indigo-600/5 animate-pulse">
-              <Shield className="text-indigo-500 w-14 h-14" />
-            </div>
-            <h1 className="text-4xl font-black text-white tracking-tighter uppercase leading-none">Orvex<span className="text-indigo-500">Pro</span></h1>
-            <p className="text-slate-500 font-bold mt-3 uppercase text-[10px] tracking-[0.4em]">Unified Licensing System</p>
-          </div>
-
-          <div className="bg-slate-900/40 backdrop-blur-3xl border border-white/5 p-10 rounded-[3rem] shadow-2xl">
-            <form onSubmit={handleLogin} className="space-y-6">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Usuário ou E-mail</label>
-                <div className="relative">
-                  <UserIcon className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-600" />
-                  <input type="text" value={loginInput.usuario} onChange={(e) => setLoginInput({...loginInput, usuario: e.target.value})} className="w-full bg-slate-950/50 border border-white/5 rounded-2xl pl-14 pr-5 py-4 outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all text-white font-medium placeholder:text-slate-700" placeholder="Acesso Master ou Revenda" required />
-                </div>
+      <div className="min-h-screen bg-[#09090b] text-slate-200 flex items-center justify-center p-4 font-sans selection:bg-indigo-500/30">
+        <div className="w-full max-w-md space-y-8 animate-in fade-in zoom-in-95 duration-500">
+           <div className="text-center">
+              <div className="inline-flex p-4 rounded-full bg-indigo-500/10 mb-4 border border-indigo-500/20 shadow-[0_0_40px_-10px_rgba(99,102,241,0.5)]">
+                 <Shield className="w-12 h-12 text-indigo-500" />
               </div>
-              
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Senha de Segurança</label>
-                <div className="relative">
-                  <Lock className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-600" />
-                  <input type={showPassword ? "text" : "password"} value={loginInput.senha} onChange={(e) => setLoginInput({...loginInput, senha: e.target.value})} className="w-full bg-slate-950/50 border border-white/5 rounded-2xl pl-14 pr-14 py-4 outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all text-white font-mono placeholder:text-slate-700" placeholder="••••••••" required />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-600 hover:text-white transition-colors">
-                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </button>
-                </div>
-              </div>
-
-              {loginError && <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-bold text-center py-4 rounded-2xl animate-shake">{loginError}</div>}
-              
-              <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-5 rounded-2xl transition-all shadow-xl shadow-indigo-600/20 active:scale-[0.98] uppercase text-xs tracking-widest">
-                Entrar no Dashboard
-              </button>
-            </form>
-          </div>
+              <h1 className="text-4xl font-black text-white tracking-tighter uppercase">Orvex<span className="text-indigo-500">AI</span></h1>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-[0.3em] mt-2">License Manager v2.7</p>
+           </div>
+           
+           <div className="bg-slate-900/50 border border-white/10 p-8 rounded-3xl backdrop-blur-xl shadow-2xl">
+              <form onSubmit={handleLogin} className="space-y-5">
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Usuário</label>
+                    <div className="relative">
+                       <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
+                       <input type="text" value={loginInput.usuario} onChange={e => setLoginInput({...loginInput, usuario: e.target.value})} className="w-full bg-black/40 border border-white/5 rounded-xl py-3 pl-10 pr-4 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500/50 outline-none text-sm text-white placeholder:text-slate-700 transition-all" placeholder="Login" />
+                    </div>
+                 </div>
+                 <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Senha</label>
+                    <div className="relative">
+                       <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
+                       <input type={showPassword ? "text" : "password"} value={loginInput.senha} onChange={e => setLoginInput({...loginInput, senha: e.target.value})} className="w-full bg-black/40 border border-white/5 rounded-xl py-3 pl-10 pr-10 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500/50 outline-none text-sm text-white placeholder:text-slate-700 transition-all font-mono" placeholder="Senha" />
+                       <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-600 hover:text-white">
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                       </button>
+                    </div>
+                 </div>
+                 {loginError && (<div className="bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-bold uppercase tracking-wider p-3 rounded-lg text-center flex items-center justify-center gap-2"><AlertTriangle className="w-4 h-4" /> {loginError}</div>)}
+                 <button className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-xl text-xs uppercase tracking-widest transition-all shadow-lg shadow-indigo-600/20">Entrar</button>
+              </form>
+           </div>
         </div>
       </div>
     );
   }
 
+  // --- Main Dashboard ---
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-100 flex flex-col font-sans selection:bg-indigo-500/30">
-      {/* Navbar Premium */}
-      <nav className="border-b border-white/5 bg-slate-950/50 backdrop-blur-xl sticky top-0 z-50 px-8 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-12">
-          <div className="flex items-center gap-3">
-            <Shield className="text-indigo-500 w-8 h-8" />
-            <h1 className="text-xl font-black tracking-tighter uppercase">Orvex<span className="text-indigo-500">Pro</span></h1>
-          </div>
-          <div className="hidden lg:flex gap-8">
-            <button onClick={() => setView('DASHBOARD')} className={`text-[10px] uppercase tracking-widest font-black flex items-center gap-2 transition-all ${view === 'DASHBOARD' ? 'text-indigo-400 border-b-2 border-indigo-400 pb-1' : 'text-slate-500 hover:text-white pb-1'}`}>
-              <Terminal className="w-4 h-4" /> DASHBOARD
-            </button>
-            {user.role === 'ADMIN' ? (
-              <>
-                <button onClick={() => setView('RESELLERS')} className={`text-[10px] uppercase tracking-widest font-black flex items-center gap-2 transition-all ${view === 'RESELLERS' ? 'text-indigo-400 border-b-2 border-indigo-400 pb-1' : 'text-slate-500 hover:text-white pb-1'}`}>
-                  <Users className="w-4 h-4" /> REVENDEDORES
-                </button>
-                <button onClick={() => setView('MONITORING')} className={`text-[10px] uppercase tracking-widest font-black flex items-center gap-2 transition-all ${view === 'MONITORING' ? 'text-indigo-400 border-b-2 border-indigo-400 pb-1' : 'text-slate-500 hover:text-white pb-1'}`}>
-                  <Activity className="w-4 h-4" /> MONITOR GLOBAL
-                </button>
-                <button onClick={() => setView('API')} className={`text-[10px] uppercase tracking-widest font-black flex items-center gap-2 transition-all ${view === 'API' ? 'text-indigo-400 border-b-2 border-indigo-400 pb-1' : 'text-slate-500 hover:text-white pb-1'}`}>
-                  <Code2 className="w-4 h-4" /> ENDPOINT API
-                </button>
-                <button onClick={() => setView('SQL')} className={`text-[10px] uppercase tracking-widest font-black flex items-center gap-2 transition-all ${view === 'SQL' ? 'text-indigo-400 border-b-2 border-indigo-400 pb-1' : 'text-slate-500 hover:text-white pb-1'}`}>
-                  <Database className="w-4 h-4" /> SQL MASTER
-                </button>
-              </>
-            ) : (
-              <button onClick={() => setView('MY_LICENSES')} className={`text-[10px] uppercase tracking-widest font-black flex items-center gap-2 transition-all ${view === 'MY_LICENSES' ? 'text-indigo-400 border-b-2 border-indigo-400 pb-1' : 'text-slate-500 hover:text-white pb-1'}`}>
-                <Key className="w-4 h-4" /> MINHAS LICENÇAS
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-6">
-          <div className="text-right hidden sm:block">
-            <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">{user.role}</p>
-            <p className="text-xs font-bold text-white uppercase">{user.nome}</p>
-          </div>
-          <button onClick={() => setUser(null)} className="p-3 bg-white/5 rounded-2xl text-slate-400 hover:text-rose-500 border border-white/5 transition-all">
-            <LogOut className="w-5 h-5" />
-          </button>
-        </div>
-      </nav>
-
-      <main className="flex-1 container mx-auto px-8 py-12">
-        {/* Dashboard View */}
-        {view === 'DASHBOARD' && (
-          <div className="animate-in fade-in duration-700">
-             <div className="flex justify-between items-end mb-12">
-               <div>
-                  <h2 className="text-5xl font-black tracking-tighter uppercase leading-none">Visão <span className="text-indigo-500">Geral</span></h2>
-                  <p className="text-slate-500 font-bold mt-2 text-sm uppercase tracking-widest">Resumo de ativações e status da plataforma.</p>
-               </div>
-               {user.role === 'REVENDEDOR' && (
-                 <button onClick={() => setShowLicenseModal(true)} className="bg-indigo-600 px-8 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-3 transition-all shadow-xl shadow-indigo-600/20 active:scale-95">
-                    <Plus className="w-5 h-5" /> Nova Licença
-                 </button>
-               )}
-             </div>
-
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-                <div className="bg-slate-900/40 border border-white/5 p-8 rounded-[2.5rem] group">
-                   <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">Licenças Ativas</p>
-                   <div className="text-6xl font-black text-white">{stats.ativas}</div>
-                </div>
-                <div className="bg-slate-900/40 border border-white/5 p-8 rounded-[2.5rem] group">
-                   <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">Vencidas ou Bloqueadas</p>
-                   <div className="text-6xl font-black text-white">{stats.vencidas}</div>
-                </div>
-                {user.role === 'ADMIN' ? (
-                   <div className="bg-indigo-600 border border-indigo-400 p-8 rounded-[2.5rem] shadow-2xl">
-                      <p className="text-indigo-100 text-[10px] font-black uppercase tracking-widest mb-2">Revendedores Ativos</p>
-                      <div className="text-6xl font-black text-white">{stats.revendedores}</div>
-                   </div>
-                ) : (
-                  <div className="bg-slate-900/40 border border-white/5 p-8 rounded-[2.5rem] group">
-                    <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">Total de Clientes</p>
-                    <div className="text-6xl font-black text-white">{stats.total}</div>
-                  </div>
-                )}
-             </div>
-
-             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-slate-900/40 border border-white/5 rounded-[2.5rem] p-10">
-                   <h3 className="text-xl font-black mb-6 uppercase flex items-center gap-3"><History className="text-indigo-500" /> Atividades Recentes</h3>
-                   <div className="space-y-4">
-                      {myLicenses.slice(0, 4).map(l => (
-                        <div key={l.id} className="bg-slate-950/50 p-6 rounded-2xl border border-white/5 flex items-center justify-between">
-                           <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-500"><UserIcon className="w-5 h-5" /></div>
-                              <div>
-                                 <p className="font-bold text-sm text-white">{l.nome || l.email}</p>
-                                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">Vencimento: {l.validade}</p>
-                              </div>
-                           </div>
-                           <span className={`text-[10px] font-black px-3 py-1 rounded-lg uppercase ${l.status === 'ATIVO' ? 'text-emerald-500 bg-emerald-500/10 border border-emerald-500/20' : 'text-rose-500 bg-rose-500/10 border border-rose-500/20'}`}>{l.status}</span>
-                        </div>
-                      ))}
-                   </div>
-                </div>
-                
-                <div className="bg-indigo-500/5 border border-indigo-500/10 rounded-[2.5rem] p-10 flex flex-col justify-center text-center items-center">
-                   <div className="p-5 bg-indigo-500/10 rounded-3xl mb-6"><Monitor className="text-indigo-500 w-10 h-10" /></div>
-                   <h3 className="text-2xl font-black mb-2 uppercase">Trava Single-PC</h3>
-                   <p className="text-slate-400 font-medium leading-relaxed max-w-sm mb-6">A trava de HWID está ativa em todas as licenças. Cada chave só funciona em 1 computador por vez.</p>
-                   <div className="flex gap-4">
-                      <div className="px-5 py-3 bg-white/5 rounded-2xl border border-white/5 text-[10px] font-black uppercase text-indigo-400">Anti-Piracy</div>
-                      <div className="px-5 py-3 bg-white/5 rounded-2xl border border-white/5 text-[10px] font-black uppercase text-indigo-400">Lock-ID</div>
-                   </div>
-                </div>
-             </div>
-          </div>
-        )}
-
-        {/* Resellers View (Admin Only) */}
-        {view === 'RESELLERS' && user.role === 'ADMIN' && (
-          <div className="animate-in slide-in-from-bottom-4 duration-500">
-             <div className="flex justify-between items-center mb-10">
-                <h2 className="text-4xl font-black tracking-tight uppercase">Gerenciar Parceiros</h2>
-                <button onClick={() => setShowModal(true)} className="bg-indigo-600 px-8 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-3 shadow-xl shadow-indigo-600/20"><Plus className="w-5 h-5" /> Novo Revendedor</button>
-             </div>
-             <div className="bg-slate-900/40 border border-white/5 rounded-[3rem] overflow-hidden">
-                <table className="w-full text-left">
-                   <thead className="bg-white/5 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
-                      <tr>
-                         <th className="px-8 py-6">Parceiro</th>
-                         <th className="px-8 py-6">WhatsApp</th>
-                         <th className="px-8 py-6">Clientes Ativos</th>
-                         <th className="px-8 py-6 text-right">Controle</th>
-                      </tr>
-                   </thead>
-                   <tbody className="divide-y divide-white/5">
-                      {resellers.map(r => (
-                        <tr key={r.id} className="hover:bg-white/[0.02] transition-colors">
-                           <td className="px-8 py-8 font-bold text-lg text-white">{r.nome} <br/> <span className="text-[10px] font-mono text-indigo-400">@{r.usuario}</span></td>
-                           <td className="px-8 py-8"><span className="text-xs font-medium text-slate-400">{r.telefone}</span></td>
-                           <td className="px-8 py-8">
-                              <span className="text-2xl font-black text-white">{licenses.filter(l => l.revendedorId === r.id).length}</span>
-                           </td>
-                           <td className="px-8 py-8 text-right space-x-3">
-                              <button className="p-3 bg-white/5 rounded-xl hover:text-indigo-400 border border-white/5"><Pencil className="w-5 h-5" /></button>
-                              <button className="p-3 bg-white/5 rounded-xl hover:text-rose-400 border border-white/5"><Ban className="w-5 h-5" /></button>
-                           </td>
-                        </tr>
-                      ))}
-                   </tbody>
-                </table>
-             </div>
-          </div>
-        )}
-
-        {/* API View */}
-        {view === 'API' && (
-          <div className="animate-in slide-in-from-bottom-4 duration-500 max-w-5xl mx-auto">
-             <div className="mb-10 flex justify-between items-center">
-                <h2 className="text-4xl font-black tracking-tight uppercase">Integração <span className="text-indigo-500">API PHP</span></h2>
-                <button onClick={() => copyToClipboard(phpCheckCode)} className="bg-white/10 hover:bg-white/20 px-6 py-3 rounded-xl flex items-center gap-3 transition-all">
-                  {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-                  <span className="text-[10px] font-black uppercase">Copiar Script</span>
-                </button>
+    <div className="min-h-screen bg-[#09090b] text-slate-200 font-sans selection:bg-indigo-500/30 flex flex-col">
+       {/* Topbar */}
+       <header className="h-16 border-b border-white/5 bg-slate-900/50 backdrop-blur-md sticky top-0 z-40 flex items-center justify-between px-6">
+          <div className="flex items-center gap-8">
+             <div className="flex items-center gap-2">
+                <Shield className="w-6 h-6 text-indigo-500" />
+                <span className="font-black text-white text-lg tracking-tighter uppercase hidden sm:block">Orvex<span className="text-indigo-500">AI</span></span>
              </div>
              
-             <div className="grid grid-cols-1 gap-8">
-                <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-white/5 shadow-2xl relative">
-                   <div className="flex items-center gap-3 mb-6">
-                      <FileCode className="text-emerald-500" />
-                      <h3 className="font-black text-xl uppercase tracking-tighter">check.php (Estrutura de Verificação)</h3>
+             <nav className="hidden md:flex items-center gap-1 bg-black/20 p-1 rounded-lg border border-white/5">
+                <button onClick={() => changeView('DASHBOARD')} className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${view === 'DASHBOARD' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>Dashboard</button>
+                {user.role === 'ADMIN' && (
+                   <button onClick={() => changeView('RESELLERS')} className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${view === 'RESELLERS' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>Revendedores</button>
+                )}
+                <button onClick={() => changeView('MY_LICENSES')} className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${view === 'MY_LICENSES' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>Licenças</button>
+                {user.role === 'ADMIN' && (
+                   <>
+                      <div className="w-px h-4 bg-white/10 mx-1"></div>
+                      <button onClick={() => changeView('SQL')} className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${view === 'SQL' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>SQL</button>
+                      <button onClick={() => changeView('API')} className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${view === 'API' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>API & Cliente</button>
+                   </>
+                )}
+             </nav>
+          </div>
+
+          <div className="flex items-center gap-4">
+             <div className="text-right hidden sm:block">
+                <div className="text-[10px] font-black uppercase text-indigo-500 tracking-widest leading-none mb-1">{user.role}</div>
+                <div className="text-xs font-bold text-white leading-none">{user.nome}</div>
+             </div>
+             <button onClick={() => setUser(null)} className="p-2 hover:bg-red-500/10 hover:text-red-500 text-slate-500 rounded-lg transition-all border border-transparent hover:border-red-500/20"><LogOut className="w-5 h-5" /></button>
+          </div>
+       </header>
+
+       <main className="flex-1 p-6 md:p-10 container mx-auto max-w-7xl animate-in fade-in zoom-in-95 duration-300">
+          
+          {/* VIEW: DASHBOARD */}
+          {view === 'DASHBOARD' && (
+             <div className="space-y-6">
+                <div className="flex justify-between items-end">
+                   <div>
+                      <h2 className="text-3xl font-black text-white uppercase tracking-tight">Visão Geral</h2>
+                      <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mt-1">Status da Operação</p>
                    </div>
-                   <pre className="text-[11px] font-mono text-emerald-400 leading-relaxed bg-black/50 p-8 rounded-3xl overflow-x-auto h-[500px] border border-white/5">{phpCheckCode}</pre>
+                   <button onClick={() => setShowModalLicense(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition-all"><Plus className="w-4 h-4" /> Nova Licença</button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                   {/* CARD TOTAL - FILTRO: ALL */}
+                   <div 
+                      onClick={() => applyDashboardFilter('ALL')}
+                      className="bg-slate-900 border border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-indigo-500/30 transition-all cursor-pointer hover:bg-slate-800/50"
+                   >
+                      <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Key className="w-16 h-16 text-indigo-500" /></div>
+                      <div className="flex items-center gap-2 text-indigo-500 mb-1">
+                         <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Total Licenças</p>
+                         <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity -translate-x-2 group-hover:translate-x-0" />
+                      </div>
+                      <p className="text-4xl font-black text-white">{stats.total}</p>
+                   </div>
+
+                   {/* CARD ATIVAS - FILTRO: ACTIVE */}
+                   <div 
+                      onClick={() => applyDashboardFilter('ACTIVE')}
+                      className="bg-slate-900 border border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-emerald-500/30 transition-all cursor-pointer hover:bg-slate-800/50"
+                   >
+                      <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Check className="w-16 h-16 text-emerald-500" /></div>
+                      <div className="flex items-center gap-2 text-emerald-500 mb-1">
+                         <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-500">Ativas</p>
+                         <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity -translate-x-2 group-hover:translate-x-0" />
+                      </div>
+                      <p className="text-4xl font-black text-white">{stats.ativas}</p>
+                   </div>
+
+                   {/* CARD VENCIDAS - FILTRO: NON_ACTIVE */}
+                   <div 
+                      onClick={() => applyDashboardFilter('NON_ACTIVE')}
+                      className="bg-slate-900 border border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-red-500/30 transition-all cursor-pointer hover:bg-slate-800/50"
+                   >
+                      <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Ban className="w-16 h-16 text-red-500" /></div>
+                      <div className="flex items-center gap-2 text-red-500 mb-1">
+                         <p className="text-[10px] font-bold uppercase tracking-widest text-red-500">Bloqueadas / Vencidas</p>
+                         <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity -translate-x-2 group-hover:translate-x-0" />
+                      </div>
+                      <p className="text-4xl font-black text-white">{stats.vencidas + stats.bloqueadas}</p>
+                   </div>
+
+                   {/* CARD REVENDEDORES (SEM FILTRO DE LICENÇA) */}
+                   {user.role === 'ADMIN' && (
+                     <div 
+                        onClick={() => changeView('RESELLERS')}
+                        className="bg-slate-900 border border-white/5 p-6 rounded-2xl relative overflow-hidden group hover:border-blue-500/30 transition-all cursor-pointer hover:bg-slate-800/50"
+                     >
+                        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Users className="w-16 h-16 text-blue-500" /></div>
+                        <div className="flex items-center gap-2 text-blue-500 mb-1">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-blue-500">Revendedores</p>
+                          <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity -translate-x-2 group-hover:translate-x-0" />
+                        </div>
+                        <p className="text-4xl font-black text-white">{stats.revendedores}</p>
+                     </div>
+                   )}
+                </div>
+             </div>
+          )}
+
+          {/* VIEW: REVENDEDORES (ADMIN ONLY) */}
+          {view === 'RESELLERS' && user.role === 'ADMIN' && (
+             <div className="space-y-6">
+                <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                   <h2 className="text-3xl font-black text-white uppercase tracking-tight">Gerenciar Revenda</h2>
+                   
+                   <div className="flex gap-2 w-full md:w-auto">
+                      <div className="relative flex-1 md:w-64">
+                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                         <input 
+                           type="text" 
+                           placeholder="Buscar nome ou usuário..." 
+                           value={searchTerm}
+                           onChange={(e) => setSearchTerm(e.target.value)}
+                           className="w-full bg-slate-900 border border-white/10 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:border-indigo-500 outline-none"
+                         />
+                         {searchTerm && <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 hover:text-white"><X className="w-3 h-3" /></button>}
+                      </div>
+                      <button onClick={() => setShowModalReseller(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition-all flex-shrink-0"><Plus className="w-4 h-4" /> <span className="hidden sm:inline">Adicionar</span></button>
+                   </div>
                 </div>
                 
-                <div className="bg-indigo-500/5 border border-indigo-500/10 p-8 rounded-[2.5rem]">
-                   <h4 className="font-black text-sm uppercase mb-4 flex items-center gap-2"><Globe className="w-4 h-4" /> Endpoint de Teste</h4>
-                   <code className="block bg-black/40 p-4 rounded-xl text-indigo-400 text-xs font-mono break-all mb-4">
-                      GET: https://seusite.com/api/check.php?email=CLIENTE@EMAIL.COM&hwid=ID_DO_HARDWARE
-                   </code>
-                   <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-relaxed">Nota: O HWID é um identificador único da máquina (como Serial da Motherboard ou CPU). Seu software deve capturá-lo e enviá-lo via URL para validar a licença.</p>
+                <div className="bg-slate-900 border border-white/5 rounded-2xl overflow-hidden shadow-xl">
+                   <div className="overflow-x-auto">
+                     <table className="w-full text-left whitespace-nowrap">
+                        <thead className="bg-black/20 text-[10px] font-black uppercase text-slate-500 tracking-wider">
+                           <tr>
+                              <th className="px-6 py-4">Nome</th>
+                              <th className="px-6 py-4">Login</th>
+                              <th className="px-6 py-4">Plano / Validade</th>
+                              <th className="px-6 py-4">Contato</th>
+                              <th className="px-6 py-4 text-center">Status</th>
+                              <th className="px-6 py-4 text-right">Ação</th>
+                           </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                           {filteredResellers.length > 0 ? filteredResellers.map(reseller => (
+                              <tr key={reseller.id} className="hover:bg-white/[0.02] transition-colors">
+                                 <td className="px-6 py-4 font-bold text-white text-sm">{reseller.nome}</td>
+                                 <td className="px-6 py-4 text-xs font-mono text-indigo-400">@{reseller.usuario}</td>
+                                 <td className="px-6 py-4">
+                                    <div className={`text-sm font-bold ${isExpired(reseller.validade) ? 'text-red-500' : 'text-slate-200'}`}>{reseller.validade}</div>
+                                    <div className="text-[10px] font-black uppercase text-blue-400">{reseller.tipo}</div>
+                                 </td>
+                                 <td className="px-6 py-4 text-xs text-slate-400">{reseller.telefone}</td>
+                                 <td className="px-6 py-4 text-center">
+                                    <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${isExpired(reseller.validade) ? 'bg-orange-500/10 text-orange-500' : reseller.status === 'ATIVO' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>{isExpired(reseller.validade) ? 'EXPIRADO' : reseller.status}</span>
+                                 </td>
+                                 <td className="px-6 py-4 text-right flex justify-end gap-2">
+                                    <button onClick={() => setEditingReseller(reseller)} className="p-2 bg-white/5 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-all border border-white/5"><Pencil className="w-4 h-4" /></button>
+                                    <button onClick={() => toggleResellerStatus(reseller.id)} className={`p-2 rounded-lg transition-all border ${reseller.status === 'ATIVO' ? 'bg-red-500/10 border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500 hover:text-white'}`}>{reseller.status === 'ATIVO' ? <Ban className="w-4 h-4" /> : <Check className="w-4 h-4" />}</button>
+                                 </td>
+                              </tr>
+                           )) : (
+                              <tr><td colSpan={6} className="p-8 text-center text-slate-500 text-sm">Nenhum revendedor encontrado para "{searchTerm}".</td></tr>
+                           )}
+                        </tbody>
+                     </table>
+                   </div>
                 </div>
              </div>
-          </div>
-        )}
+          )}
 
-        {/* Monitoring & My Licenses View */}
-        {(view === 'MY_LICENSES' || view === 'MONITORING') && (
-          <div className="animate-in slide-in-from-bottom-4 duration-500">
-             <div className="flex justify-between items-center mb-10">
-                <h2 className="text-4xl font-black tracking-tight uppercase">{view === 'MONITORING' ? 'Controle Global HWID' : 'Gestão de Licenças'}</h2>
-                {user.role === 'REVENDEDOR' && (
-                  <button onClick={() => setShowLicenseModal(true)} className="bg-indigo-600 px-8 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-3 shadow-xl shadow-indigo-600/20"><Plus className="w-5 h-5" /> Criar Chave</button>
-                )}
-             </div>
-             <div className="bg-slate-900/40 border border-white/5 rounded-[3rem] overflow-hidden">
-                <table className="w-full text-left">
-                   <thead className="bg-white/5 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
-                      <tr>
-                         <th className="px-8 py-6">Cliente</th>
-                         <th className="px-8 py-6">HWID Travado</th>
-                         <th className="px-8 py-6">Validade / Plano</th>
-                         <th className="px-8 py-6 text-right">Reset Lock</th>
-                      </tr>
-                   </thead>
-                   <tbody className="divide-y divide-white/5">
-                      {myLicenses.map(l => (
-                        <tr key={l.id} className="hover:bg-white/[0.02] transition-colors">
-                           <td className="px-8 py-8">
-                              <div className="font-bold text-white text-md">{l.nome || 'Cliente Final'}</div>
-                              <div className="text-[10px] font-medium text-slate-500">{l.email}</div>
-                           </td>
-                           <td className="px-8 py-8">
-                              <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 bg-white/5 px-3 py-1.5 rounded-xl border border-white/5 w-fit">
-                                 <Cpu className="w-4 h-4 text-indigo-500" /> {l.hwid || 'SISTEMA AGUARDANDO ACESSO'}
-                              </div>
-                           </td>
-                           <td className="px-8 py-8">
-                              <div className={`font-bold text-sm ${isExpired(l.validade) ? 'text-rose-500' : 'text-emerald-500'}`}>{l.validade} <br/> <span className="text-[10px] text-slate-500 uppercase font-black">{l.tipo}</span></div>
-                           </td>
-                           <td className="px-8 py-8 text-right">
-                              <button onClick={() => handleResetHWID(l.id)} className="p-3 bg-white/5 rounded-xl hover:text-amber-500 border border-white/5 transition-all" title="Liberar novo PC"><RefreshCcw className="w-5 h-5" /></button>
-                           </td>
-                        </tr>
-                      ))}
-                   </tbody>
-                </table>
-             </div>
-          </div>
-        )}
-
-        {/* SQL Tab */}
-        {view === 'SQL' && user.role === 'ADMIN' && (
-          <div className="max-w-5xl mx-auto animate-in slide-in-from-bottom-4 duration-500">
-             <div className="mb-10 flex justify-between items-center">
-                <h2 className="text-4xl font-black tracking-tight uppercase">Script <span className="text-indigo-500">MySQL</span></h2>
-                <button onClick={() => copyToClipboard(sqlFinal)} className="bg-white/5 hover:bg-white/10 px-6 py-3 rounded-xl flex items-center gap-3 transition-all">
-                  {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-                  <span className="text-[10px] font-black uppercase">Copiar SQL</span>
-                </button>
-             </div>
-             <pre className="bg-slate-900 border border-white/10 p-10 rounded-[2.5rem] font-mono text-xs text-indigo-300 leading-relaxed overflow-x-auto shadow-2xl h-[600px] border border-white/5">{sqlFinal}</pre>
-          </div>
-        )}
-      </main>
-
-      {/* Modal: Novo Revendedor */}
-      {showModal && (
-        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-[100] flex items-center justify-center p-6">
-          <div className="bg-slate-900 border border-white/10 w-full max-w-lg rounded-[3.5rem] p-12 shadow-2xl relative animate-in zoom-in-95 duration-300">
-             <button onClick={() => setShowModal(false)} className="absolute top-10 right-10 text-slate-500 hover:text-white"><X className="w-8 h-8" /></button>
-             <h2 className="text-3xl font-black mb-10 flex items-center gap-4"><UserCheck className="text-indigo-500" /> Registrar Revendedor</h2>
+          {/* VIEW: LICENÇAS */}
+          {view === 'MY_LICENSES' && (
              <div className="space-y-6">
-                <div className="space-y-2">
-                   <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Nome / Empresa</label>
-                   <input type="text" value={newReseller.nome} onChange={e => setNewReseller({...newReseller, nome: e.target.value})} className="w-full bg-slate-950/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none focus:ring-2 focus:ring-indigo-500/50" placeholder="Ex: Revenda Premium" />
-                </div>
-                <div className="space-y-2">
-                   <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">WhatsApp de Contato</label>
-                   <div className="relative">
-                      <Phone className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-600" />
-                      <input type="text" value={newReseller.telefone} onChange={e => setNewReseller({...newReseller, telefone: e.target.value})} className="w-full bg-slate-950/50 border border-white/5 rounded-2xl pl-16 pr-6 py-4 text-white outline-none focus:ring-2 focus:ring-indigo-500/50" placeholder="(11) 99999-9999" />
+                <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                   <div className="flex items-center gap-4">
+                      <h2 className="text-3xl font-black text-white uppercase tracking-tight">Licenças</h2>
+                      
+                      {/* Badge de Filtro Ativo */}
+                      {filterType === 'ACTIVE' && (
+                          <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full animate-in fade-in zoom-in">
+                              <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                              <span className="text-[10px] font-bold uppercase text-emerald-500 tracking-wider">Exibindo Apenas Ativas</span>
+                              <button onClick={() => setFilterType('ALL')} className="ml-1 hover:text-white"><X className="w-3 h-3"/></button>
+                          </div>
+                      )}
+                      {filterType === 'NON_ACTIVE' && (
+                          <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 px-3 py-1 rounded-full animate-in fade-in zoom-in">
+                              <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                              <span className="text-[10px] font-bold uppercase text-red-500 tracking-wider">Exibindo Problemas</span>
+                              <button onClick={() => setFilterType('ALL')} className="ml-1 hover:text-white"><X className="w-3 h-3"/></button>
+                          </div>
+                      )}
+                   </div>
+                   
+                   <div className="flex gap-2 w-full md:w-auto">
+                      <div className="relative flex-1 md:w-64">
+                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                         <input 
+                           type="text" 
+                           placeholder="Buscar cliente, email, HWID..." 
+                           value={searchTerm}
+                           onChange={(e) => setSearchTerm(e.target.value)}
+                           className="w-full bg-slate-900 border border-white/10 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:border-indigo-500 outline-none"
+                         />
+                         {searchTerm && <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 hover:text-white"><X className="w-3 h-3" /></button>}
+                      </div>
+                      <button onClick={() => setShowModalLicense(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition-all flex-shrink-0"><Plus className="w-4 h-4" /> <span className="hidden sm:inline">Nova Licença</span></button>
                    </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                     <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Usuário Login</label>
-                     <input type="text" value={newReseller.usuario} onChange={e => setNewReseller({...newReseller, usuario: e.target.value})} className="w-full bg-slate-950/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none focus:ring-2 focus:ring-indigo-500/50 font-mono" placeholder="revenda01" />
-                  </div>
-                  <div className="space-y-2">
-                     <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Senha Inicial</label>
-                     <input type="password" value={newReseller.senha} onChange={e => setNewReseller({...newReseller, senha: e.target.value})} className="w-full bg-slate-950/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none focus:ring-2 focus:ring-indigo-500/50 font-mono" placeholder="••••••••" />
-                  </div>
+
+                <div className="bg-slate-900 border border-white/5 rounded-2xl overflow-hidden shadow-xl">
+                   <div className="overflow-x-auto">
+                      <table className="w-full text-left whitespace-nowrap">
+                         <thead className="bg-black/20 text-[10px] font-black uppercase text-slate-500 tracking-wider">
+                            <tr>
+                               <th className="px-6 py-4">Cliente</th>
+                               <th className="px-6 py-4">Validade / Plano</th>
+                               <th className="px-6 py-4">HWID (PC Lock)</th>
+                               {user.role === 'ADMIN' && <th className="px-6 py-4">Vendedor</th>}
+                               <th className="px-6 py-4 text-center">Status</th>
+                               <th className="px-6 py-4 text-right">Controles</th>
+                            </tr>
+                         </thead>
+                         <tbody className="divide-y divide-white/5">
+                            {filteredLicenses.length > 0 ? filteredLicenses.map(lic => (
+                               <tr key={lic.id} className="hover:bg-white/[0.02] transition-colors">
+                                  <td className="px-6 py-4">
+                                     <div className="font-bold text-white text-sm">{lic.nome}</div>
+                                     <div className="text-[10px] text-slate-500">{lic.email}</div>
+                                  </td>
+                                  <td className="px-6 py-4">
+                                     <div className={`text-sm font-bold ${isExpired(lic.validade) ? 'text-red-500' : 'text-slate-200'}`}>{lic.validade}</div>
+                                     <div className="text-[10px] font-black uppercase text-indigo-400">{lic.tipo}</div>
+                                  </td>
+                                  <td className="px-6 py-4">
+                                     <div className="flex items-center gap-2">
+                                        <Monitor className={`w-4 h-4 ${lic.hwid ? 'text-emerald-500' : 'text-slate-600'}`} />
+                                        <code className="text-[10px] bg-black/30 px-2 py-1 rounded border border-white/5 text-slate-400 font-mono">{lic.hwid || 'Nenhum PC vinculado'}</code>
+                                     </div>
+                                  </td>
+                                  {user.role === 'ADMIN' && (
+                                     <td className="px-6 py-4 text-xs font-bold text-slate-400 uppercase">{lic.revendedorNome}</td>
+                                  )}
+                                  <td className="px-6 py-4 text-center">
+                                     {isExpired(lic.validade) ? (<span className="px-2 py-1 rounded text-[10px] font-black uppercase bg-orange-500/10 text-orange-500">VENCIDO</span>) : lic.status === 'BLOQUEADO' ? (<span className="px-2 py-1 rounded text-[10px] font-black uppercase bg-red-500/10 text-red-500">BLOQUEADO</span>) : (<span className="px-2 py-1 rounded text-[10px] font-black uppercase bg-emerald-500/10 text-emerald-500">ATIVO</span>)}
+                                  </td>
+                                  <td className="px-6 py-4 text-right">
+                                     <div className="flex justify-end gap-2">
+                                        <button onClick={() => setEditingLicense(lic)} className="p-2 bg-white/5 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-all border border-white/5" title="Editar Licença"><Pencil className="w-4 h-4" /></button>
+                                        <button onClick={() => resetHWID(lic.id)} className="p-2 bg-white/5 hover:bg-amber-500/10 hover:text-amber-500 border border-white/5 hover:border-amber-500/20 rounded-lg transition-all" title="Resetar HWID (Troca de PC)"><RefreshCcw className="w-4 h-4" /></button>
+                                        <button onClick={() => toggleLicenseStatus(lic.id)} className={`p-2 rounded-lg transition-all border ${lic.status === 'ATIVO' ? 'bg-white/5 hover:bg-red-500 hover:text-white border-white/5 hover:border-red-500' : 'bg-red-500/10 text-red-500 hover:bg-emerald-500 hover:text-white border-red-500/20 hover:border-emerald-500'}`} title="Bloquear/Desbloquear">{lic.status === 'ATIVO' ? <Ban className="w-4 h-4" /> : <Check className="w-4 h-4" />}</button>
+                                     </div>
+                                  </td>
+                               </tr>
+                            )) : (
+                              <tr><td colSpan={6} className="p-8 text-center text-slate-500 text-sm">Nenhum registro encontrado {filterType !== 'ALL' ? 'com este filtro' : ''} para "{searchTerm}".</td></tr>
+                            )}
+                         </tbody>
+                      </table>
+                   </div>
                 </div>
-                <button onClick={handleAddReseller} className="w-full bg-indigo-600 py-5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-indigo-600/20 mt-6">Ativar Cadastro de Parceiro</button>
+             </div>
+          )}
+
+          {/* VIEW: SQL & API */}
+          {view === 'SQL' && user.role === 'ADMIN' && (
+             <div className="max-w-4xl mx-auto space-y-4">
+                <div className="flex justify-between"><h2 className="text-3xl font-black uppercase text-white">SQL</h2><button onClick={() => copyToClipboard(sqlContent)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase flex items-center gap-2"><Copy className="w-4 h-4" /> Copiar</button></div>
+                <div className="bg-[#0f172a] border border-indigo-500/20 rounded-2xl p-1 shadow-2xl">
+                   <div className="bg-slate-950 rounded-xl p-6 overflow-x-auto">
+                      <pre className="font-mono text-xs text-indigo-300 leading-relaxed selection:bg-indigo-500/30">{sqlContent}</pre>
+                   </div>
+                </div>
+             </div>
+          )}
+          {view === 'API' && user.role === 'ADMIN' && (
+             <div className="max-w-4xl mx-auto space-y-8 pb-10">
+                <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl flex gap-3">
+                   <AlertTriangle className="text-amber-500 flex-shrink-0" />
+                   <div>
+                      <p className="text-amber-500 font-bold text-sm">Instalação Obrigatória</p>
+                      <p className="text-slate-400 text-xs">Você deve criar a pasta <code className="text-white">api</code> dentro de <code className="text-white">public_html/orvexai/</code> e enviar os arquivos `config.php` e `check.php` com o conteúdo abaixo.</p>
+                   </div>
+                </div>
+
+                <div className="space-y-4">
+                    <div className="flex justify-between"><h2 className="text-2xl font-black uppercase text-white flex items-center gap-2"><FileCode className="w-6 h-6 text-blue-500"/> Arquivo 1: config.php</h2><button onClick={() => copyToClipboard(phpConfig)} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase flex items-center gap-2"><Copy className="w-4 h-4" /> Copiar</button></div>
+                    <pre className="bg-slate-950 p-6 rounded-2xl border border-white/10 text-xs font-mono text-blue-300 overflow-auto">{phpConfig}</pre>
+                </div>
+
+                <div className="space-y-4">
+                    <div className="flex justify-between"><h2 className="text-2xl font-black uppercase text-white flex items-center gap-2"><FileCode className="w-6 h-6 text-emerald-500"/> Arquivo 2: check.php</h2><button onClick={() => copyToClipboard(phpCheck)} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase flex items-center gap-2"><Copy className="w-4 h-4" /> Copiar</button></div>
+                    <pre className="bg-slate-950 p-6 rounded-2xl border border-white/10 text-xs font-mono text-emerald-300 overflow-auto">{phpCheck}</pre>
+                </div>
+
+                <div className="w-full h-px bg-white/10 my-8"></div>
+
+                <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <h2 className="text-2xl font-black uppercase text-white flex items-center gap-2"><Laptop className="w-6 h-6 text-indigo-500"/> Integração Cliente (C#)</h2>
+                            <p className="text-slate-500 text-xs mt-1">Substitua seu script antigo (Google Sheets) por esta função no seu software.</p>
+                        </div>
+                        <button onClick={() => copyToClipboard(csharpCode)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase flex items-center gap-2 shadow-lg shadow-indigo-600/20"><Copy className="w-4 h-4" /> Copiar C#</button>
+                    </div>
+                    <pre className="bg-slate-950 p-6 rounded-2xl border border-indigo-500/20 text-xs font-mono text-slate-300 overflow-auto leading-relaxed">{csharpCode}</pre>
+                </div>
+             </div>
+          )}
+
+       </main>
+
+       {/* MODAIS DE CRIAÇÃO */}
+       {showModalReseller && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+             <div className="bg-slate-900 w-full max-w-lg rounded-2xl border border-white/10 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="px-6 py-4 border-b border-white/5 flex justify-between bg-black/20"><h3 className="font-bold text-white uppercase">Novo Revendedor</h3><button onClick={() => setShowModalReseller(false)}><X className="w-5 h-5 text-slate-500" /></button></div>
+                <div className="p-6 space-y-4">
+                   <input type="text" value={newReseller.nome} onChange={e => setNewReseller({...newReseller, nome: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none" placeholder="Nome" />
+                   <input type="text" value={newReseller.telefone} onChange={e => setNewReseller({...newReseller, telefone: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none" placeholder="WhatsApp" />
+                   <div className="grid grid-cols-2 gap-4">
+                      <input type="text" value={newReseller.usuario} onChange={e => setNewReseller({...newReseller, usuario: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none" placeholder="Login" />
+                      <input type="text" value={newReseller.senha} onChange={e => setNewReseller({...newReseller, senha: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none" placeholder="Senha" />
+                   </div>
+                   <div className="grid grid-cols-2 gap-4">
+                      <select value={newReseller.tipo} onChange={e => setNewReseller({...newReseller, tipo: e.target.value as ResellerPlan})} className="bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none"><option value="ANUAL">ANUAL</option><option value="VITALICIO">VITALICIO</option></select>
+                      <input type="date" value={newReseller.validade} onChange={e => setNewReseller({...newReseller, validade: e.target.value})} className="bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none" />
+                   </div>
+                   <button onClick={handleCreateReseller} className="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg uppercase text-xs tracking-wider">Criar</button>
+                </div>
              </div>
           </div>
-        </div>
-      )}
+       )}
 
-      {/* Modal: Nova Licença */}
-      {showLicenseModal && (
-        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-[100] flex items-center justify-center p-6">
-          <div className="bg-slate-900 border border-white/10 w-full max-w-lg rounded-[3.5rem] p-12 shadow-2xl relative animate-in zoom-in-95 duration-300">
-             <button onClick={() => setShowLicenseModal(false)} className="absolute top-10 right-10 text-slate-500 hover:text-white"><X className="w-8 h-8" /></button>
-             <h2 className="text-3xl font-black mb-10 flex items-center gap-4 uppercase"><Key className="text-indigo-500" /> Emitir Nova Chave</h2>
-             <div className="space-y-6">
-                <div className="space-y-2">
-                   <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">E-mail do Cliente</label>
-                   <input type="email" value={newLicense.email} onChange={e => setNewLicense({...newLicense, email: e.target.value})} className="w-full bg-slate-950/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none focus:ring-2 focus:ring-indigo-500/50" placeholder="cliente@provedor.com" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                   <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Modalidade</label>
-                      <select value={newLicense.tipo} onChange={e => setNewLicense({...newLicense, tipo: e.target.value as Plan})} className="w-full bg-slate-950/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none focus:ring-2 focus:ring-indigo-500/50 appearance-none font-bold text-xs uppercase">
-                         <option value="MENSAL">Mensal</option>
-                         <option value="ANUAL">Anual</option>
-                         <option value="VITALICIO">Vitalício</option>
-                      </select>
+       {showModalLicense && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+             <div className="bg-slate-900 w-full max-w-lg rounded-2xl border border-white/10 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="px-6 py-4 border-b border-white/5 flex justify-between bg-black/20"><h3 className="font-bold text-white uppercase">Nova Licença</h3><button onClick={() => setShowModalLicense(false)}><X className="w-5 h-5 text-slate-500" /></button></div>
+                <div className="p-6 space-y-4">
+                   <input type="text" value={newLicense.nome} onChange={e => setNewLicense({...newLicense, nome: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none" placeholder="Nome Cliente" />
+                   <input type="email" value={newLicense.email} onChange={e => setNewLicense({...newLicense, email: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none" placeholder="Email" />
+                   <div className="grid grid-cols-2 gap-4">
+                      <select value={newLicense.tipo} onChange={e => setNewLicense({...newLicense, tipo: e.target.value as Plan})} className="bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none"><option value="MENSAL">MENSAL</option><option value="ANUAL">ANUAL</option><option value="VITALICIO">VITALICIO</option></select>
+                      <input type="date" value={newLicense.validade} onChange={e => setNewLicense({...newLicense, validade: e.target.value})} className="bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none" />
                    </div>
-                   <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Expiração</label>
-                      <input type="date" value={newLicense.validade} onChange={e => setNewLicense({...newLicense, validade: e.target.value})} className="w-full bg-slate-950/50 border border-white/5 rounded-2xl px-6 py-4 text-white outline-none focus:ring-2 focus:ring-indigo-500/50 font-bold" />
-                   </div>
+                   <button onClick={handleCreateLicense} className="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg uppercase text-xs tracking-wider">Gerar Chave</button>
                 </div>
-                <button onClick={handleAddLicense} className="w-full bg-indigo-600 py-5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-indigo-600/20 mt-6 tracking-[0.2em]">Gerar e Salvar Licença</button>
              </div>
           </div>
-        </div>
-      )}
+       )}
 
-      <footer className="py-12 border-t border-white/5 bg-slate-950/30 text-center">
-        <p className="text-[10px] text-slate-700 font-bold uppercase tracking-[0.5em]">Sistema de Licenciamento Sênior &copy; 2024</p>
-      </footer>
+       {/* MODAIS DE EDIÇÃO */}
+       {editingReseller && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+             <div className="bg-slate-900 w-full max-w-lg rounded-2xl border border-white/10 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="px-6 py-4 border-b border-white/5 flex justify-between bg-black/20"><h3 className="font-bold text-white uppercase">Editar Revendedor</h3><button onClick={() => setEditingReseller(null)}><X className="w-5 h-5 text-slate-500" /></button></div>
+                <div className="p-6 space-y-4">
+                   <div className="space-y-1"><label className="text-[10px] uppercase font-bold text-slate-500">Nome</label><input type="text" value={editingReseller.nome} onChange={e => setEditingReseller({...editingReseller, nome: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none" /></div>
+                   <div className="space-y-1"><label className="text-[10px] uppercase font-bold text-slate-500">WhatsApp</label><input type="text" value={editingReseller.telefone} onChange={e => setEditingReseller({...editingReseller, telefone: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none" /></div>
+                   <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1"><label className="text-[10px] uppercase font-bold text-slate-500">Plano</label><select value={editingReseller.tipo} onChange={e => setEditingReseller({...editingReseller, tipo: e.target.value as ResellerPlan})} className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none"><option value="ANUAL">ANUAL</option><option value="VITALICIO">VITALICIO</option></select></div>
+                      <div className="space-y-1"><label className="text-[10px] uppercase font-bold text-slate-500">Validade</label><input type="date" value={editingReseller.validade} onChange={e => setEditingReseller({...editingReseller, validade: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none" /></div>
+                   </div>
+                   <div className="space-y-1"><label className="text-[10px] uppercase font-bold text-slate-500">Nova Senha (Opcional)</label><input type="text" value={editingReseller.senha} onChange={e => setEditingReseller({...editingReseller, senha: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white font-mono focus:border-indigo-500 outline-none" /></div>
+                   <button onClick={handleUpdateReseller} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg uppercase text-xs tracking-wider flex items-center justify-center gap-2"><Save className="w-4 h-4" /> Salvar Alterações</button>
+                </div>
+             </div>
+          </div>
+       )}
+
+       {editingLicense && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+             <div className="bg-slate-900 w-full max-w-lg rounded-2xl border border-white/10 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="px-6 py-4 border-b border-white/5 flex justify-between bg-black/20"><h3 className="font-bold text-white uppercase">Editar Licença</h3><button onClick={() => setEditingLicense(null)}><X className="w-5 h-5 text-slate-500" /></button></div>
+                <div className="p-6 space-y-4">
+                   <div className="space-y-1"><label className="text-[10px] uppercase font-bold text-slate-500">Nome Cliente</label><input type="text" value={editingLicense.nome} onChange={e => setEditingLicense({...editingLicense, nome: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none" /></div>
+                   <div className="space-y-1"><label className="text-[10px] uppercase font-bold text-slate-500">Email</label><input type="text" value={editingLicense.email} onChange={e => setEditingLicense({...editingLicense, email: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none" /></div>
+                   <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1"><label className="text-[10px] uppercase font-bold text-slate-500">Plano</label><select value={editingLicense.tipo} onChange={e => setEditingLicense({...editingLicense, tipo: e.target.value as Plan})} className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none"><option value="MENSAL">MENSAL</option><option value="ANUAL">ANUAL</option><option value="VITALICIO">VITALICIO</option></select></div>
+                      <div className="space-y-1"><label className="text-[10px] uppercase font-bold text-slate-500">Validade</label><input type="date" value={editingLicense.validade} onChange={e => setEditingLicense({...editingLicense, validade: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-indigo-500 outline-none" /></div>
+                   </div>
+                   <button onClick={handleUpdateLicense} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg uppercase text-xs tracking-wider flex items-center justify-center gap-2"><Save className="w-4 h-4" /> Salvar Alterações</button>
+                </div>
+             </div>
+          </div>
+       )}
+
     </div>
   );
 };
